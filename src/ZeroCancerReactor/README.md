@@ -1,34 +1,78 @@
-# ZeroCancerReactor: GPU-Accelerated Tumor Microenvironment (TME) Simulator
+# Zero Cancer Reactor: GPU-Accelerated 70M-Cell TME Simulator
+
+<div align="center">
+  <i>A computational framework for simulating time-dependent cellular dynamics and tumor microenvironment equilibrium.</i>
+  <br><br>
+  <b>Developer:</b> Zero-AI-Native (Age 15, assisted by Google Gemini 3.1 Pro) <br>
+  <b>Architecture:</b> CUDA C++ / DirectX 11 / Computational Biology<br>
+  <b>Status:</b> Concept / Simulation Deployed
+</div>
+
+---
 
 ## Overview
-ZeroCancerReactor is a highly optimized, GPU-bound cellular automaton and biological simulation framework. It is designed to model the Tumor Microenvironment (TME) and host-tumor interactions at a large scale (up to 70 million concurrent cellular agents). The simulation utilizes CUDA for parallel processing and relies on mathematical models, stochastic distributions, and a Proportional-Integral-Derivative (PID) controller to evaluate cellular state transitions, immune system responses, and metabolic homeostasis.
+The Zero Cancer Reactor is a GPU-accelerated biological cellular automaton and simulator. It is designed to mathematically model the Tumor Microenvironment (TME) for up to 70 million concurrent cellular agents. The simulation relies on real-time stochastic models, differential equation approximations, and biochemical kinetics rather than pre-scripted state transitions. 
 
-The primary objective of this computational model is to study localized Lotka-Volterra predator-prey dynamics between oncogenic cells and the host immune system, specifically exploring theoretical states of symbiosis regulated by automated biological feedback loops.
+**Project Objective:** The simulation explores a theoretical model based on Lotka-Volterra dynamics. By implementing a programmatic proportional-integral-derivative (PID) controller (`BiologicalPID`), the system attempts to regulate a modified cellular population to achieve targeted homeostasis. This includes simulating telomere maintenance and evaluating whether a steady-state symbiosis can be maintained between simulated host parameters and neoplastic agents over extended chronological mapping.
+
+### Scale & Hardware Specifications
+The simulation is engineered to process up to 70 million independent agents (`Cell` structs) per tick. Operations such as chemical gradient evaluation, cellular division, and simulated immune responses are executed on the GPU. The current matrix has been optimized to run within the constraints of consumer-grade hardware, specifically tested on an NVIDIA RTX 3060 (12GB VRAM). Performance stability (60.0 FPS UI rendering) is maintained by aligning memory structures (64-byte cache-line alignment) and decoupling CUDA compute kernels from the DirectX 11 rendering thread using asynchronous streams (`cudaStreamCreateWithPriority`).
+
+---
 
 ## Technical Details / Architecture
-The architecture is structured around a decoupled processing model, separating the CUDA compute kernels from the DirectX 11 rendering thread to maintain UI responsiveness. 
 
-*   **Cellular Subsystem (`Cell.h`)**: The foundational entity of the simulation. The `Cell` struct is explicitly aligned to 64 bytes (`alignas(64)`) to match GPU L1/L2 cache-line architecture, preventing memory fragmentation. It tracks parameters such as `telomere_length`, `mutation_load`, `metabolic_exhaustion`, `cd59_shield`, and `hif1a_expression`.
-*   **Biological Engine (`NatureDirector.h` / `NatureDirector.cpp`)**: A mathematical engine that evaluates environmental variables, cytokine gradients (e.g., IL-2, IL-6, TGF-beta), and white blood cell (WBC) lineages. It uses Michaelis-Menten kinetics and Sigmoid activation functions to model complex biological cascades and updates systemic constraints.
-*   **Parallel Execution Matrix (`CellularKernel.cuh` / `CellularKernel.cu`)**: Handles the core computational load. The `BiologicalTickKernel` processes cellular states concurrently. It calculates survival probabilities based on environmental factors (e.g., oxygen, glucose) against effector mechanisms like the Perforin/Granzyme pathway and MAC complement system. It utilizes asynchronous CUDA streams (`cudaStreamCreateWithPriority`) and pinned memory (`cudaMallocHost`) to avoid WDDM blocking.
-*   **Reactor Engine & Control Loop (`ReactorEngine.h` / `ReactorEngine.cpp`)**: Manages the main asynchronous execution loop. This module integrates the `BiologicalPID` controller, which dynamically adjusts the `immortality_control` variable to maintain the `systemic_z_tumor_saturation` within specific predefined thresholds. It also manages the `AsyncDataLogger` for double-buffered CSV telemetry recording.
-*   **Intervention Logic (`SentinelGuard.cpp`, `TelomeraseExploit.cpp`)**: 
-    *   `SentinelGuard` acts as an automated threshold monitor, executing pruning functions based on immune evasion metrics (PD-1/PD-L1 axis, Treg aura).
-    *   `TelomeraseExploit` models theoretical micro-seeding events (`ExecutePayload`), modifying cellular subsets with a `FLAG_Z_TUMOR_MARKER` to observe the system's capacity to return to equilibrium.
-*   **Visualization & Telemetry (`CyberGraph.h` / `CyberGraph.cpp`)**: A DirectX 11 and ImGui-based user interface. It renders a customized HLSL shader representing the cellular population and provides a dashboard mapping the 38 biological variables tracked in the `BioTelemetry` struct.
+All core mathematical models, CUDA execution kernels, and biological logic controllers are publicly accessible for peer review and structural analysis.
+
+**Source Code Modules & Engine Components:**
+
+*   [`NatureDirector.h`](NatureDirector.h) | [`NatureDirector.cpp`](NatureDirector.cpp)
+    *   Executes the core biological engine approximations, cytokine network variables, and Lotka-Volterra mathematical models via stochastic methods (`FastXoshiro256Nature`).
+*   [`ReactorEngine.h`](ReactorEngine.h) | [`ReactorEngine.cpp`](ReactorEngine.cpp)
+    *   Manages the asynchronous master loop, the `BiologicalPID` controller, and the `AsyncDataLogger` for continuous telemetry recording.
+*   [`CellularKernel.cuh`](CellularKernel.cuh) | [`CellularKernel.cu`](CellularKernel.cu)
+    *   Contains the CUDA HPC parallel execution implementations (e.g., `BiologicalTickKernel`). Evaluates cell state changes, resource allocation, and effector mechanisms concurrently.
+*   [`TelomeraseExploit.h`](TelomeraseExploit.h) | [`TelomeraseExploit.cpp`](TelomeraseExploit.cpp)
+    *   Implements the `ExecutePayload` function, a targeted modification logic (referred to internally as the Phoenix protocol) designed to alter telomere parameters (`FLAG_Z_TUMOR_MARKER`) dynamically.
+*   [`SentinelGuard.h`](SentinelGuard.h) | [`SentinelGuard.cpp`](SentinelGuard.cpp)
+    *   Handles simulated immune orchestration, calculating pruning thresholds and evasion logic based on effector variables like `perforin_granzyme_pathway`.
+*   [`Cell.h`](Cell.h)
+    *   Defines the foundational autonomous agent structure. Explicitly aligned (`alignas(64)`) to exactly 64 bytes to ensure GPU cache-line efficiency. Tracks parameters such as `telomere_length`, `mutation_load`, and `epigenetic_shield`.
+*   [`main.cpp`](main.cpp)
+    *   The entry point. Initializes the execution matrix up to the `MAX_70M_LIMIT` and manages the primary asynchronous event-driven lifecycle.
+*   [`CyberGraph.h`](CyberGraph.h) | [`CyberGraph.cpp`](CyberGraph.cpp)
+    *   A DirectX 11 / ImGui-based user interface. Provides decoupled telemetry visualization. It also acts as the control module for tracking `integration_phase_active_` states and issuing modification payloads based on user-defined demographic inputs.
+*   [`BioTerminal.h`](BioTerminal.h) | [`BioTerminal.cpp`](BioTerminal.cpp)
+    *   A thread-safe, double-buffered logging system for real-time reporting of simulated biological events.
+
+**Audit & Collaboration Accessibility:**
+The codebase is structured to allow independent compilation and verification of the parallel processing algorithms and mathematical heuristics used to evaluate cellular survival probabilities.
+
+---
+
+## Visual & Empirical Validation Portal
+
+Comprehensive visual data and empirical datasets are available to verify the engine’s real-time variable processing and performance stability.
+
+*   **[TelemetryGallery](TelemetryGallery.md):** A visual repository containing high-resolution captures of the DirectX 11 interface during operation, documenting system state transitions across the 38 tracked biological variables and hardware resource utilization.
+*   **[BiologicalTelemetryDataset](BiologicalTelemetryDataset.md):** An analytical dictionary for the telemetry output. It details the 69 parameters generated and recorded asynchronously by the `AsyncDataLogger` during a simulated run of 72,000 ticks.
+
+---
 
 ## Current Status
-The computational framework is fully implemented and capable of running on consumer-grade GPUs (tested primarily for 12GB VRAM environments). The core engine successfully allocates memory for large populations (up to `MAX_70M_LIMIT = 70000000`) and logs multivariable data across asynchronous epochs without impeding frame rates.
+The project is currently capable of running stable simulations with populations scaling up to the 70-million parameter limit. The `AsyncDataLogger` has successfully output datasets (e.g., 72,000 consecutive ticks), which the internal metric system correlates to long-term host-tumor equilibrium. The UI and GPU compute threads run asynchronously without deadlocks.
+
+---
 
 ## Assumptions & Limitations
-While the simulation tracks numerous biological variables, several significant assumptions and abstractions are present in the model:
-*   **Spatial Abstraction:** The simulation processes cells in a linear 1D array (`d_cells_read_`, `d_cells_write_`). True 3D spatial dynamics, cell-to-cell structural morphology, and distance-based chemical gradients are not explicitly modeled; interactions are primarily calculated based on systemic global variables and randomized target indices.
-*   **Arbitrary Scalars & Heuristics:** The codebase utilizes manually tuned scalar multipliers and predefined thresholds (e.g., `cancer_ratio * 0.28`, predefined `APOPTOSIS_THRESHOLD = 0.85`) to maintain computational stability and force the PID equilibrium. These are theoretical constructs rather than values derived from specific *in vitro* or *in vivo* empirical assays.
-*   **Theoretical Mechanisms:** Functions such as the rejuvenating exosome network (`ExosomeNetwork`) and the programmatic reversal of telomere degradation via oncogenic symbiosis are speculative mathematical implementations used to test the PID controller, not validated biological phenomena.
-*   **Conditional Logic over Pure Physics:** State transitions heavily rely on discrete conditional logic (e.g., explicit `if` statements for checking `CellState::HEALTHY` or flags like `FLAG_P53_ACTIVE`) and discrete stochastic probabilities rather than pure molecular-level physics or continuous partial differential equations (PDEs).
+To accurately evaluate this simulator, the following technical and scientific limitations must be acknowledged:
+
+1.  **Heuristic Modeling vs. Empirical Biology:** The variables used for immune system responses, cytokine interactions, and effector mechanisms (e.g., `mac_complement_system`, `cd59_shield`) are based on mathematical heuristics (Sigmoid functions, arbitrary scalar multipliers) rather than being directly derived from measured in-vivo kinetic data.
+2.  **Temporal Abstraction:** Output claims relating to "1,300 years of real-time human-tumor symbiosis" or locking biological age to "25 years" are based on an arbitrary programmatic mapping of simulation ticks (`epoch_ticks`) to real-world time. This is a functional assumption of the engine, not a validated biological equivalent.
+3.  **Forced Homeostasis:** The Lotka-Volterra equilibrium and systemic stability are heavily regulated by a programmed `BiologicalPID` controller and explicit upper/lower bounds (`std::clamp`), rather than emerging purely from the unconstrained interaction of the cellular agents.
+4.  **Pseudo-Random Number Generation:** The simulation utilizes fast PRNGs (`gpu_rand_float`, `FastXoshiro256Nature`) to determine stochastic events like mutation probabilities and cellular apoptosis. While efficient for GPU parallelization, these do not represent true biological entropy.
+
+---
 
 ## Usage / How to Run
-*(Note: Refer to the provided Visual Studio solution file for environment setup.)*
-1.  Ensure an NVIDIA GPU with CUDA support is available and the CUDA Toolkit is installed.
-2.  Compile the project using a C++17/C++20 compatible compiler linking against `cudart.lib`, `d3d11.lib`, and `d3dcompiler.lib`.
-3.  The application launches via `main.cpp`, initializing the reactor and standard ImGui interface. Data logs will be asynchronously written to a CSV file in the executable directory.
+*(Instructions for compiling via MSVC, linking DirectX 11, setting up the NVIDIA CUDA Toolkit, and running the executable should be placed here).*
