@@ -1,152 +1,83 @@
-## 🧬 ZeroSnake: Comprehensive Architectural & Technical Analysis
+# ZeroSnake: Architectural & Technical Analysis
 
-This section provides a rigorous, under-the-hood dissection of the ZeroSnake
-engine. This tool bypasses the limitations of traditional sockets, integrating
-directly with Native Windows APIs to achieve unprecedented network
-reconnaissance capabilities.
+## Overview
+ZeroSnake is a concurrent network port scanner designed for Windows environments. The application utilizes native Windows APIs, specifically I/O Completion Ports (IOCP), to perform asynchronous TCP connection attempts without spawning individual threads per socket. It features a graphical user interface rendered via DirectX 11 and ImGui, allowing real-time monitoring of active scans, discovered hosts, and system resource allocation.
 
-### ⚙️ 1. The IOCP Core Engine (Asynchronous Input/Output Completion Ports)
+## Technical Details / Architecture
 
-The beating heart of ZeroSnake is the I/O Completion Ports (IOCP) architecture.
-Unlike traditional scanners that spawn a dedicated thread for each connection
-(which inevitably leads to CPU exhaustion), this engine utilizes a highly
-optimized Event-Driven paradigm.
+### 1. The IOCP Core Engine (Asynchronous Input/Output Completion Ports)
+The application relies on the IOCP architecture to manage asynchronous socket operations, utilizing an event-driven model to handle concurrency.
+*   **Loading ConnectEx Dynamically (`WSAIoctl`):** To avoid blocking calls associated with the standard `connect()` function, the system calls `WSAIoctl` with `WSAID_CONNECTEX` to retrieve the `ConnectEx` function pointer. This enables asynchronous TCP SYN requests.
+*   **`AsyncContext` Structure:** A custom structure that includes an `OVERLAPPED` member. It stores the `SOCKET`, IP, and Port, preserving the connection state in memory until the kernel signals completion.
+*   **Concurrency Capacity:** The `GetQueuedCompletionStatus` function processes responses. The architecture is configured to permit up to 150,000 pending connections simultaneously before initiating throttling measures.
 
-  - Loading ConnectEx Dynamically (WSAIoctl): In Windows, the standard connect()
-    function is blocking. This codebase circumvents this by calling WSAIoctl
-    with WSAID_CONNECTEX to extract the ConnectEx function pointer directly from
-    the Windows Kernel. This allows the scanner to fire TCP SYN requests in the
-    background without waiting for a response.
-  - Struct AsyncContext: A custom structure that inherits from WSAOVERLAPPED.
-    This struct encapsulates the SOCKET, IP, and Port, preserving the state of
-    each open connection within the Heap memory until the Windows Kernel returns
-    the result via the Completion Port.
-  - Infinite Scalability: The GetQueuedCompletionStatus function within
-    IOCPWorker consumes CPU resources only when a response is successfully
-    received from a target server. This architecture permits over 100,000
-    Concurrent Sockets to remain in a PENDING state without freezing the system.
+### 2. Connection & Resource Management
+To manage operating system resources (such as ephemeral port depletion), the application uses atomic counters for state tracking.
+*   **Concurrency Tracking:** The `std::atomic<long long> g_PendingConnections` variable tracks the number of pending asynchronous sockets.
+*   **Throttling Mechanism:** Within the `IOCPScannerEngine` function, a `while (g_PendingConnections.load() > 150000)` loop enforces a 10-millisecond thread sleep if pending connections exceed the threshold, managing the outbound traffic rate.
+*   **Cleanup Protocol:** The `StartJanitorCleanup` function terminates worker threads gracefully by dispatching termination signals via `PostQueuedCompletionStatus(g_hIOCP, 0, 0, NULL)` before closing the IOCP handle (`CloseHandle`).
 
-### 🛡️ 2. Sentinel Guard & Resource Management
+### 3. CIDR & Bogon Filtering
+The application filters out non-routable or private IP addresses prior to initiating connection attempts.
+*   **Bitwise Filtering:** The `IsBlackHoleIP` function evaluates IP addresses using bitwise shifting (`b1 = (hIP >> 24) & 0xFF`).
+*   **Address Elimination:** The logic is configured to skip local networks (e.g., 10.0.0.0/8, 192.168.x.x), loopback addresses (127.x.x.x), multicast traffic (224.x.x.x), and Carrier-grade NAT (100.64.0.0/10).
 
-To prevent Resource Exhaustion (the depletion of OS resources such as Ephemeral
-ports), the code is equipped with an atomic monitoring system.
+### 4. Target Port Matrix
+The `g_TargetPorts` array defines the specific TCP ports the engine evaluates. The selection focuses on common services:
+*   **Web Services:** Ports 80, 443, 8080, 8443.
+*   **Database Services:** Ports 1433 (MSSQL), 1521 (Oracle), 3306 (MySQL), 5432 (PostgreSQL), 27017 (MongoDB).
+*   **Remote Access / Management:** Ports 21 (FTP), 22 (SSH), 23 (Telnet), 445 (SMB), 3389 (RDP), 5900 (VNC), 6379 (Redis).
 
-  - Atomic Concurrency Limit: The variable std::atomic<long long>
-    g_PendingConnections continuously tracks the exact number of pending sockets
-    in real-time.
-  - Micro-Throttling: Within the IOCPScannerEngine function, a protective while
-    loop is implemented (while (g_PendingConnections.load() > 150000)). If the
-    outbound traffic exceeds the network interface's processing capacity, the
-    engine automatically enforces a 10-millisecond Thread Sleep. This "anti-lock
-    brake" guarantees tool stability even on low-tier servers and successfully
-    evades ISP traffic monitoring heuristics.
-  - Janitor Cleanup Protocol: The StartJanitorCleanup function is a controlled
-    demolition algorithm. Instead of utilizing TerminateThread (which causes
-    severe Memory Leaks), it dispatches elegant "Poison Pills" to worker threads
-    using PostQueuedCompletionStatus(g_hIOCP, 0, 0, NULL), ensuring they shut
-    down safely before securely closing the IOCP handle (CloseHandle(g_hIOCP)).
+### 5. Host Deduplication & Data Management
+Discovered hosts are maintained in memory and synchronized across threads.
+*   **Data Structure:** Active hosts are stored in a `std::vector<HostUIEntry>` named `g_UI_Hosts`.
+*   **State Verification:** When a connection succeeds, the system performs a linear search over `g_UI_Hosts` under a mutex (`g_UIHostsMutex`) to update existing host records or append new entries.
 
-### 🌌 3. Smart CIDR & Bogon Filtering Engine
+### 6. Thread-Safe Asynchronous I/O
+Data transfer between networking threads and the UI thread is managed via custom queues.
+*   **`ThreadSafeQueue`:** A template class utilizing `std::deque` and `std::mutex` to manage incoming logs and host updates.
+*   **Batch Consumption:** The `ConsumeAll` function extracts queued elements in a single operation, reducing the frequency of mutex locks required by the UI thread rendering loop.
 
-Time is the most valuable asset of a scanner. ZeroSnake never wastes cycles on
-invalid addresses.
+### 7. Asynchronous File Serialization
+Persistent storage of scan results is handled by a dedicated background thread.
+*   **`FileWriterWorker`:** An isolated thread responsible for writing output data.
+*   **State Flags:** The `std::atomic<bool> g_DirtyFile` variable indicates when new ports or hosts have been identified. When true, the current state of `g_UI_Hosts` is formatted and written to `LiveHosts.txt`.
 
-  - Bitwise Operation Accuracy: Instead of relying on Regex or String
-    Comparisons (which are computationally expensive), the IsBlackHoleIP
-    function utilizes low-level bitwise operations (Bit-shifting & Masking) on
-    unsigned int data types.
-  - Bogon Elimination: By extracting the first and second bytes (b1 = (hIP
-    >> 24) & 0xFF), the engine instantaneously filters out local networks
-    (10.0.0.0/8, 192.168.x.x), Loopback addresses (127.x.x.x), Multicast traffic
-    (224.x.x.x), and Carrier-grade NAT (100.64.0.0/10). This logic ensures the
-    scanner fires exclusively at valid, public internet spaces.
+### 8. UI Rendering
+The Graphical User Interface is built with DirectX 11 and ImGui.
+*   **Data Sorting:** In the Live Terminal and Vulnerable Hosts panels, arrays are iterated in reverse (`g_UI_Logs.size() - 1 - i`) to render the most recent entries at the top of the display.
+*   **Render Culling:** `ImGuiListClipper` is implemented to render only the visible rows within the application window, optimizing UI performance for large datasets.
+*   **Text Wrapping:** Functions like `ImGui::PushTextWrapPos` are used in conjunction with column boundary calculations to manage text display within the tables.
 
-### ⚔️ 4. Strategic Target Port Matrix
+## Current Status
+ZeroSnake is currently operational as a Windows-native TCP port scanner. The IOCP engine successfully processes asynchronous requests, and the UI correctly reflects real-time host discovery and pending connection counts.
 
-The g_TargetPorts array is not a random list; it is a meticulously crafted
-Infrastructure Kill-Chain roadmap.
+## Assumptions & Limitations
+*   **O(N) Search Complexity:** The application currently relies on a linear search through a `std::vector` (`g_UI_Hosts`) to deduplicate incoming IPs. While functional, this operation scales at O(N) and may introduce UI thread bottlenecks as the number of discovered hosts grows into the tens of thousands.
+*   **Platform Dependency:** The core network engine relies heavily on Windows-specific APIs (`WSAIoctl`, `GetQueuedCompletionStatus`), meaning the codebase is strictly limited to Windows operating systems and cannot be cross-compiled to Linux or macOS.
+*   **Static Port Array:** The `g_TargetPorts` array is hardcoded at compile time. Modifying the target ports requires recompilation of the application.
+*   **Connection Timeouts:** TCP timeouts are hardcoded via `setsockopt` (e.g., `SO_SNDTIMEO`, 5000ms), which may not be optimal for all network conditions and cannot currently be adjusted via the UI.
 
-  - Web Attack Surface: Ports 80, 443, 8080, 8443 (Feeding target data to
-    ZeroSifter for Layer 7 exploitation).
-  - Database Exfiltration: Ports 1433 (MSSQL), 1521 (Oracle), 3306 (MySQL), 5432
-    (PostgreSQL), 27017 (MongoDB). Designed for the direct hunting of
-    misconfigured, unsecured databases.
-  - Remote Code Execution (RCE) & Access: Ports 445 (SMB vulnerabilities like
-    EternalBlue), 3389 (RDP), 6379 (Redis RCE), and 5900 (VNC). This port
-    selection clearly indicates ZeroSnake's primary objective: locating servers
-    holding the highest tier of critical data.
+## Usage / How to Run
+To compile and execute ZeroSnake:
+1. Ensure you have Microsoft Visual Studio installed with the Desktop development with C++ workload.
+2. The project relies on DirectX 11, ImGui, and Windows Sockets (Winsock2). Standard Windows SDKs are required.
+3. Build the project using the MSVC compiler (`x64 Native / Ring 3` configuration).
+4. Run the resulting executable. The application requires an active internet connection to pass the `InternetCheckConnection` validation check.
 
-### 🧩 5. Cross-Session Hash Guard Deduplication
-
-Managing incoming data from thousands of open ports requires an ultra-fast,
-in-memory database.
-
-  - The HashGuard Mutex: Utilizes std::unordered_set<std::string> g_HashGuard.
-    When a live host is identified (in IOCPWorker), its IP is extracted and
-    verified using an O(1) hashing algorithm.
-  - Memory Overflow Prevention: To prevent RAM exhaustion during prolonged,
-    multi-day scans, a smart trap is implemented: if (g_HashGuard.size()
-    > 50000) g_HashGuard.clear();. This logic guarantees that the application's
-    cache will never overflow.
-
-### 🌊 6. Advanced Thread-Safe Asynchronous I/O
-
-Transferring data from network threads to the UI thread is the primary cause of
-C++ application crashes. ZeroSnake neutralizes this threat.
-
-  - The Custom ThreadSafeQueue: A proprietary template leveraging std::deque and
-    std::mutex.
-  - Batch Consumption: The ConsumeAll function is the masterpiece of this
-    segment. Instead of forcing the UI to engage a Mutex Lock for every single
-    message, it extracts all accumulated data in one atomic batch movement. This
-    minimizes Context Switching, ensuring the UI remains perfectly smooth (60
-    FPS) even under extreme scanning loads of 50,000 PPS.
-
-### 💾 7. Asynchronous File Serialization
-
-Data loss due to sudden power failure or system crashes is an operator's worst
-nightmare.
-
-  - The FileWriterWorker: A completely isolated Thread that bears zero
-    interference with the scanning engine or the UI.
-  - Dirty Flag Logic: The std::atomic<bool> g_DirtyFile variable monitors
-    whether new data has been added to the host list. The live database is
-    rewritten to LiveHosts.txt only when this flag is set to True. The output
-    format is hyper-optimized so it can be instantly ingested by its sibling
-    tool (ZeroSifter) for the Exploitation phase.
-
-
-### 🎨 8. Waterfall UI Rendering & Dynamic Geometry
-
-The Graphical User Interface is architected with DirectX 11 and ImGui to ensure
-absolute minimum GPU and CPU footprint.
-
-  - Waterfall Logic: In the Live Terminal and Vulnerable Hosts sections, instead
-    of appending data to the bottom of the list and forcing manual scrolling, a
-    reverse loop (g_UI_Logs.size() - 1 - i) is employed. This ensures that the
-    newest targets cascade at the "top" of the table.
-  - ImGuiListClipper Integration: Rendering 10,000 lines of text will freeze any
-    system. ImGuiListClipper acts as a Virtual Rendering tool. It only renders
-    the specific rows currently visible on the operator's monitor (e.g., 20
-    rows), keeping the engine flawlessly responsive even if the database holds
-    millions of IPs.
-  - Dynamic Column Wrapping: Precise coordinate calculations
-    (ImGui::GetCursorPos().x) combined with PushTextWrapPos guarantee that
-    regardless of window resizing, text (especially the open ports list) never
-    overflows its container and wraps perfectly.
-    
+---
 <div align="center">
   <img src="https://raw.githubusercontent.com/AmirGG11OP/Zero-Ai-Native/main/assets/ZeroSifter_UI-0.png" width="800">
   <br><br>
   <img src="https://raw.githubusercontent.com/AmirGG11OP/Zero-Ai-Native/main/assets/ZeroSifter_UI-1.png" width="800">
-  <p><i>ZeroSnake Operational Dashboard - Scan IPs with different open ports in real time via IOCP. Note: All data displayed ports and IP addresses are taken from live test environments and are fully real and operational, confirming the engine's ability to detect real and active security flaws. No simulations or fake data were used in this validation.</i></p>
+  <p><i>ZeroSnake Operational Dashboard - Displays active port scanning data processed via IOCP.</i></p>
 </div>
 <div align="center">
   <img src="https://raw.githubusercontent.com/AmirGG11OP/Zero-Ai-Native/main/assets/LiveHosts.png" width="800">
-  <p><i>The report shown in the image shows a real sample of data such as IPs and their various ports, and the scanning, detection, and extraction operations performed by ZeroSnake during a real security audit. All of these objectives and outputs have been verified by ZeroSnake’s sibling, ZeroSifter.</i></p>
+  <p><i>Sample output interface displaying discovered IPs and associated open ports.</i></p>
 </div>
   
-## 💻 Full Source Code
+## Full Source Code
 ```cpp
 /*
  * PROJECT: ZeroSnake [Winsock IOCP Edition - V9 SIBLING SYNC]
