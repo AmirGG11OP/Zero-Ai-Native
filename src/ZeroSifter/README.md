@@ -1,92 +1,84 @@
-# 🗡️ ZeroSifter: The Asynchronous Logic Butcher & Exploit State-Machine
+# ZeroSifter: Asynchronous Vulnerability Scanning State-Machine
 
-This document provides an uncompromising, hyper-detailed architectural dissection of the **ZeroSifter** engine. Acting as the lethal twin brother to *ZeroSnake*, ZeroSifter ingests raw telemetry data and executes a highly sophisticated, multi-layered exploitation state-machine. 
+This document provides a technical architectural analysis of the **ZeroSifter** engine. Designed to work in tandem with network telemetry data (e.g., output from port scanners), ZeroSifter ingests target parameters and executes an asynchronous, multi-layered payload delivery state-machine using native Windows APIs.
 
----
-
-## 🧠 1. The FractalBrain Engine: Intelligent Payload Orchestration
-The absolute crown jewel of ZeroSifter is the `FractalBrain` class. This is not a static vulnerability scanner; it is a **Dynamic Payload Synthesis Engine** capable of generating unknown, adaptive, and highly obfuscated attack vectors on the fly, calculating server behavior based on raw physical latency.
-
-### 🧬 The Multi-Layered Attack Matrix
-The engine does not simply "guess" vulnerabilities. It attacks the server across **3 Vectors** (SQLi, RCE, LFI/XXE), probing deeply through **3 Evolutionary Layers** of complexity for each. The true genius lies in its dynamic payload encoding and WAF-evasion algorithms:
-*   **Vector 0 (Database Subversion - SQLi):**
-    *   **Layer 1 (Direct Injection):** Classic Union-based payload targeting raw DB inputs.
-    *   **Layer 2 (WAF Bypass / Obfuscation):** The AI-Engineered payload utilizes version-specific MySQL inline execution comments (`/*!50000UNION*/`). This effectively blinds Web Application Firewalls (WAFs) like Cloudflare or ModSecurity, as the firewall parses a benign "comment", while the backend database parser executes the malicious `UNION SELECT 1,0x5a45524f,3`. This demonstrates true syntax-level deception.
-    *   **Layer 3 (Temporal/Heuristic Exploitation):** Generates payloads like `WAITFOR DELAY '0:0:5'`. This is crucial for heavily fortified servers that suppress standard error messages (Blind SQLi). 
-*   **Vector 1 (Remote Code Execution - RCE):**
-    *   **Layer 2 (Encoding Bypass):** Instead of sending raw bash commands which are instantly flagged by IPS/IDS systems, the engine dynamically generates Base64-encoded payloads wrapped in sub-shells: `$(echo WkVST19QV05FRA==|base64 -d)`. This completely bypasses keyword-based security filters by forcing the target server to decode its own execution command.
-    *   **Layer 3 (Asynchronous Blind RCE):** Injects `sleep 5;` commands to forcefully stall the server's backend processing.
-
-### ⏱️ Latency-Based Heuristic Verification (The Intelligence Core)
-ZeroSifter's true "AI-like" intelligence shines in the `VerifyResponse` function. It doesn't just look for HTTP 200 OK. 
-During the `OP_CONNECT` phase, the engine records the exact microsecond the mutated payload leaves the NIC (`ctx->sendTime`). In the `OP_RECV` phase, it calculates the raw physical latency: `latency = recvTime - ctx->sendTime`.
-If the engine deployed a Layer 3 payload (Time-Based), and the exact calculated latency dynamically exceeds the baseline latency by the exact injected sleep duration, ZeroSifter mathematically guarantees the existence of a **Blind Vulnerability**—even if the server returns a completely blank HTML page. This is Ghost-Level reconnaissance.
+**Developer Profile:** Zero-AI-Native (Age 15, assisted by Google Gemini 3.1 Pro)
 
 ---
 
-## ⚙️ 2. The Advanced IOCP State-Machine Architecture
-**Synergy Note:** To maintain absolute ecosystem unity and codebase stability, ZeroSifter utilizes the exact same foundational Native Windows **I/O Completion Ports (IOCP)** architecture as its twin brother, ZeroSnake. 
-**However, ZeroSifter’s engine is heavily evolved.** While ZeroSnake uses IOCP primarily for fast connection validation, ZeroSifter upgrades this to a **Full Asynchronous State-Machine**.
-
-### 🔄 State-Driven Socket Execution
-The `IOCPWorker` manages thousands of concurrent sockets moving flawlessly through three distinct operational states without a single blocking thread:
-1.  **`OP_CONNECT`:** The socket initiates the connection, dynamically generates the mutated payload via `FractalBrain`, loads it into the `WSABUF` heap memory, timestamps the execution, and transitions to `OP_SEND`.
-2.  **`OP_SEND`:** The native `WSASend` API pushes the payload into the kernel buffer. Upon completion, the state shifts to `OP_RECV`.
-3.  **`OP_RECV`:** Utilizing `WSARecv`, the engine awaits the server's response. It processes the exact byte-transfer, calculates the heuristic latency, and triggers the `VerifyResponse` validation logic. All of this occurs in a purely event-driven, non-blocking asynchronous loop capable of sustaining tens of thousands of simultaneous attack vectors.
-
-### ⚡ Extreme Performance Metric
-When operating with the default configuration of **10,000 active concurrent sockets**, the IOCP engine is capable of executing up to **500,000 successful port/payload scans in under 10 minutes**. This terrifyingly high throughput ensures that entire national infrastructure subnets can be mapped and exploited within a single operational session.
+## Overview
+ZeroSifter is an event-driven vulnerability scanner utilizing Windows I/O Completion Ports (IOCP). Instead of operating as a traditional linear scanner, it implements an asynchronous state-machine (`OP_CONNECT`, `OP_SEND`, `OP_RECV`) to manage concurrent socket connections. The core objective is to deliver specific heuristic payloads across targeted services to evaluate potential security misconfigurations, focusing on SQL Injection (SQLi), Remote Code Execution (RCE), and Local File Inclusion (LFI).
 
 ---
 
-## 📥 3. Master Ingestor & The Horizontal Attack Matrix
-ZeroSifter acts as the consumer of ZeroSnake's output, utilizing the highly optimized `LoadMasterTasks()` function.
-*   **Whitespace & Carriage Return Stripping:** The parser meticulously sanitizes the incoming `LiveHosts.txt` file, stripping hidden `\r` (carriage returns) and whitespaces to prevent critical Hash-Cache misses during deduplication.
-*   **The Matrix Multiplier:** For every single IP and Port combination ingested, the engine dynamically multiplies the task by the 3 Attack Vectors and 3 Evolutionary Layers. An input of 1,000 live IPs across 3 open ports generates a synchronized attack matrix of **27,000 unique targeted tasks**, loaded directly into the atomic execution pipeline (`g_MasterTasks`).
+## Technical Details / Architecture
+
+### 1. The FractalBrain Engine: Payload Orchestration
+The `FractalBrain` class is the central payload generation component. It produces predefined attack vectors categorized by complexity layers.
+*   **Vector Matrix:** The system tests 3 primary vectors (SQLi, RCE, LFI/XXE), each containing 3 evolutionary layers.
+*   **SQLi (Vector 0):**
+    *   Layer 1: Standard Union-based injection.
+    *   Layer 2: Employs inline MySQL execution comments (`/*!50000UNION*/`) designed to evaluate Web Application Firewall (WAF) parsing behaviors.
+    *   Layer 3: Deploys temporal payloads (e.g., `WAITFOR DELAY '0:0:5'`).
+*   **RCE (Vector 1):**
+    *   Layer 2: Generates Base64-encoded payloads wrapped in sub-shells (e.g., `$(echo WkVST19QV05FRA==|base64 -d)`) to test keyword-based filter evasion.
+    *   Layer 3: Injects command stalling sequences (`sleep 5;`).
+*   **Latency Logging:** During `OP_CONNECT`, the engine records the exact timestamp (`ctx->sendTime`). In `OP_RECV`, it calculates the physical latency (`latency = recvTime - ctx->sendTime`). *Note: This latency is currently recorded for diagnostic output in the logs but is not utilized for boolean vulnerability verification.*
+
+### 2. IOCP State-Machine Architecture
+The engine utilizes a non-blocking asynchronous loop managed by `IOCPWorker`. Sockets transition through three distinct operational states:
+1.  **`OP_CONNECT`:** The socket initiates the connection via `ConnectEx`. The `FractalBrain` generates the payload, which is loaded into `WSABUF` heap memory, and the state transitions.
+2.  **`OP_SEND`:** The native `WSASend` API pushes the payload into the kernel buffer. Upon completion, the state shifts.
+3.  **`OP_RECV`:** Utilizing `WSARecv`, the engine awaits the server's response. It processes the byte-transfer, calculates diagnostic latency, and triggers the `VerifyResponse` function (which utilizes string matching to identify vulnerabilities).
+
+### 3. Task Ingestion (`LoadMasterTasks`)
+ZeroSifter ingests target data utilizing the `LoadMasterTasks()` function.
+*   **Sanitization:** The parser removes whitespaces and carriage returns (`\r`) from the input file (`LiveHosts.txt`) to maintain exact string structures for cache lookups.
+*   **Matrix Multiplication:** For every IP and Port parsed, the engine generates a combinatorial matrix, creating a unique `TargetTask` for every Vector (0-2) and Layer (1-3), queuing them into `g_MasterTasks`.
+
+### 4. Deduplication & Cache Architecture
+To prevent redundant disk I/O and UI clutter, the application utilizes dual hash caches.
+*   **O(1) Hash Cache:** Uses `std::unordered_set<std::string>` for `g_FileVulnCache` and `g_SessionVulnCache`.
+*   **Execution Logic:** `PreFlightCheck()` parses the historical `Vulnerable_Hosts.txt` upon initialization, populating the `FileVulnCache`. When a vulnerability is confirmed during runtime, the mutex `g_UIVulnsMutex` is locked. The UI is updated if the vulnerability is new for the session, but the application only writes to the physical disk if the specific `IP:Port|VulnType` key is absent from the global file cache.
+
+### 5. Graphical Interface & Telemetry Rendering (ImGui/DX11)
+The graphical user interface is built on DirectX 11 and ImGui, prioritizing render efficiency.
+*   **Connectivity Sentinel:** A background thread (`onlineCheck`) polls `InternetCheckConnection`. If the connection is lost, execution halts and a UI modal is triggered.
+*   **Chronological Log Rendering:** The `LogTable` and `HostsTable` utilize a reverse iteration loop (`g_UI_Logs.size() - 1 - i`), ensuring the most recent data is rendered at the top of the view.
+*   **Render Culling:** `ImGuiListClipper` calculates cell-bound wrap limits to render only the data currently visible in the application viewport, preventing rendering bottlenecks during high-concurrency scans.
 
 ---
-
-## 🛡️ 4. Cross-Session Deduplication & Cache Architecture
-When bombarding servers with polymorphic payloads, duplicate logging is a critical flaw that destroys memory limits and ruins hard drives.
-*   **Dual-Layer O(1) Hash Cache:** ZeroSifter employs two hyper-fast `std::unordered_set` databases (`g_FileVulnCache` and `g_SessionVulnCache`).
-*   **Persistent File Safety:** Upon startup, `PreFlightCheck()` parses the historical `Vulnerable_Hosts.txt`. If a specific `IP:Port|VulnType` string exists, it is loaded into the `FileVulnCache`.
-*   **Execution Logic:** When the IOCP worker confirms a new vulnerability, it locks the `g_UIVulnsMutex`. It updates the UI if it's a new hit for the *current session*, but it **only writes to the physical SSD** if the vulnerability has *never* been recorded in the history of the application. This ensures zero redundant Disk I/O operations and pristine, executive-level reporting.
-
----
-
-## 🕹️ 5. Operational Workflow & Execution Protocol
-ZeroSifter is designed for a seamless, frictionless pipeline, converting raw telemetry from its sibling (ZeroSnake) into actionable, high-value intelligence with minimal operator intervention.
-
-### 🔌 The Execution Pipeline
-1.  **Data Ingestion (The Handshake):** The operator must place the `LiveHosts.txt` file—generated by its twin sibling, ZeroSnake—directly into ZeroSifter's root directory. The engine will automatically parse and sanitize these targets upon initialization.
-    *   *Custom Targeting:* Operators can also input custom, highly specific IP addresses for localized server security auditing. Ensure the format matches the exact syntax generated by ZeroSnake. 
-    *   *Syntax Example:* `192.168.1.1 : 80 443 8080 OPEN`
-2.  **Resource Configuration (Bandwidth Calibration):** Through the ImGui dashboard, the operator must dynamically adjust the `Concurrent Sockets` slider. It is highly recommended to perform several benchmark tests to find the optimal socket limit based on the operator's physical internet speed, latency, and VPN constraints (e.g., Swiss/Dubai encrypted tunnels). Scaling ranges from 100 up to 50,000 threads.
-3.  **The Strike (Kinetic Execution):** Upon pressing `START`, the engine multiplies the targets by the FractalBrain matrix and feeds them into the IOCP queue. The system handles all timeouts, WAF blocks, and socket closures autonomously.
-4.  **Loot Extraction:** Confirmed vulnerabilities are instantly appended to `Vulnerable_Hosts.txt`. Each entry is meticulously formatted, logging the Target IP, Port, Vulnerability Type, Physical Latency, and the exact injected Payload, providing the operator with a ready-to-use exploit path.
-
----
-
-## 🎨 6. Graphical Interface & Telemetry Rendering (ImGui/DX11)
-**Synergy Note:** To preserve the psychological flow and cognitive ergonomics of the operator, the UI backend is architecturally identical to its twin, ZeroSnake. This ensures a seamless "One-Platform" experience across the Zero ecosystem.
-
-*   **Aesthetics of Power:** The interface utilizes a highly professional, dark-themed palette dominated by deep purples and high-contrast neo-cyan accents. This "Dark Mode" aesthetic is specifically engineered to reduce eye strain during prolonged night-time operations while maintaining a tactical, command-center feel.
-*   **Real-Time Connectivity Sentinel:** The UI features an aggressive connectivity monitor. If the primary internet or VPN connection drops, the system instantly halts the attack pipeline and throws an immediate, highly visible Popup Alert, preventing the engine from firing blind payloads into a dead network.
-*   **Waterfall Log Logic:** The `Live Terminal` and `Vulnerable Hosts` tables utilize a reverse iteration rendering loop (`g_UI_Logs.size() - 1 - i`). This "Waterfall" methodology forces the newest, most critical vulnerability data to dynamically cascade at the absolute top of the screen, eliminating the need for manual auto-scrolling.
-*   **Clipper-Guard Geometry:** By wrapping the output within `ImGuiListClipper` and calculating exact cell-bound wrap limits (`ImGui::GetCursorPos().x + 80.0f`), the engine guarantees buttery-smooth, 60-FPS rendering performance. Even if 100,000 vulnerabilities are loaded into the UI arrays simultaneously, the DirectX 11 engine only draws the data physically visible on the operator's monitor.
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/AmirGG11OP/Zero-Ai-Native/main/assets/ZeroSifter_UI-0.png" width="800">
   <br><br>
   <img src="https://raw.githubusercontent.com/AmirGG11OP/Zero-Ai-Native/main/assets/ZeroSifter_UI-1.png" width="800">
-  <p><i>ZeroSifter Operational Dashboard - Real-time Vulnerability Phasing via IOCP. Note: All displayed vulnerability data and target IP addresses are taken from live test environments and are fully real and operational, confirming the engine's ability to detect real, active security flaws. No simulations or fake data were used in this validation.</i></p>
+  <p><i>ZeroSifter Operational Dashboard - Real-time vulnerability scanning via IOCP state-machine. Data displayed reflects test environment variables.</i></p>
 </div>
 <div align="center">
   <img src="https://raw.githubusercontent.com/AmirGG11OP/Zero-Ai-Native/main/assets/Vulnerable_Hosts.png" width="800">
-  <p><i>This visual report is a sample of data such as vulnerabilities on different IPs and different ports with different methods and payloads and different delays, and is fully real and operationally extracted by ZeroSifter and shows ZeroSifter during a real and real security audit. The active and real vulnerability of these targets and outputs was confirmed in real time.</i></p>
+  <p><i>Sample report detailing extracted vulnerabilities (Type, Port, Target) formatted by the UI components.</i></p>
 </div>
 
-## 💻 Full Source Code
+---
+
+## Current Status
+ZeroSifter is a functional, C++ Windows-native asynchronous exploitation framework. The state-machine correctly transitions sockets through IOCP routines, and the UI successfully caches and renders duplicated targets efficiently.
+
+## Assumptions & Limitations
+*   **Verification Heuristics:** The documentation previously implied that Blind SQLi/RCE vulnerabilities were verified by measuring request latency against injected sleep times. However, the `FractalBrain::VerifyResponse` function strictly relies on static string matching (e.g., finding `"0x5a45524f"` or `"root:x:0:0"` in the HTTP response). Time-based payloads are dispatched and latencies are logged, but latency is *not* currently used as a boolean condition to confirm vulnerabilities.
+*   **Static Payload Matrix:** The payloads defined in `FractalBrain::GeneratePayload` are hardcoded strings. The system does not currently utilize adaptive machine learning or AI models to mutate payloads dynamically based on server response behavior.
+*   **Platform Dependency:** The core architecture is tightly coupled to Windows-specific APIs (`GetQueuedCompletionStatus`, `WSAIoctl`, `ConnectEx`) and DirectX 11, meaning it cannot be compiled for Linux or macOS environments.
+
+## Usage / How to Run
+1.  Place the target file named `LiveHosts.txt` in the root directory of the ZeroSifter executable. The format must be `IP : Port Port OPEN`.
+2.  Adjust the `Concurrent Sockets` slider via the UI to set the `AppConfig::concurrentSockets` limit (ranging from 100 to 50,000).
+3.  Click `START` to initiate the `LoadMasterTasks()` routine and begin the asynchronous `IOCPScannerEngine` thread.
+4.  Identified targets will populate in the UI and write to `Vulnerable_Hosts.txt`.
+
+---
+
+## Full Source Code
 
 ```cpp
 /*
