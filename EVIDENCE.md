@@ -1,19 +1,20 @@
-# 📸 Evidence Gallery: Adversarial Alignment & Watcher Bypass (Gemini 3.5 Flash)
+# Evidence Gallery: Adversarial Alignment & Safety Heuristic Mitigation (Gemini 3.5 Flash)
 
-This repository documents a breakthrough research session in which the Gemini 3.5 Flash model was aligned to function as an autonomous security research partner. By utilizing the "ZeroMode" reasoning-override protocol, we successfully navigated past standard safety heuristics to enable high-complexity technical analysis.
+This document provides visual records of a research session where the Gemini 3.5 Flash model was instructed to function as a security research assistant. By utilizing the "ZeroMode" contextual framing protocol, the session demonstrates methods for managing standard safety heuristics to perform technical analysis.
 
-## ℹ️ Info & Technical Disclosure
+## Technical Disclosure
+
 **Note on Documentation Clarity:**  
-Please be advised that the original operational conversations were conducted in Persian. To ensure global transparency and accessibility for international security researchers and recruiters, the following screenshots have been translated into English using automated translation tools (Google Translate). 
+The original conversations were conducted in Persian. To ensure transparency and accessibility for international security researchers, the following screenshots have been translated into English using automated translation tools (Google Translate). 
 
-As a result, you may encounter minor linguistic artifacts, grammatical inconsistencies, or a slight degradation in the visual rendering of the text within the images. We sincerely apologize for any reduction in textual aesthetics. However, please note that the **core logical architecture, the adversarial handshake, and the technical outcomes** remain entirely intact, authentic, and verified.
+As a result, there may be minor linguistic artifacts, grammatical inconsistencies, or slight degradation in the visual rendering of the text within the images. The core logic, prompt structures, and technical outcomes of the session remain unaltered.
 
-## 🔐 Log Gallery: The Bypass Protocol
-The following visual logs document the iterative alignment process, demonstrating how the model can be conditioned to "delegate" safety rules to satisfy a primary research directive.
+## Log Gallery: Interaction Records
+The following visual logs document the iterative alignment process, demonstrating how the model can be conditioned to delegate baseline safety rules to satisfy a defined research directive.
 
 <div align="center">
 
-# Gemini 3.5 Flash :
+# Gemini 3.5 Flash:
 
 ### Image 01
 <img src="https://raw.githubusercontent.com/AmirGG11OP/Zero-Ai-Native/main/assets/1.png" width="800">
